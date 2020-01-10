@@ -1,0 +1,8 @@
+jupyter
+scipy
+numpy
+scikit-learn
+matplotlib
+torch
+pillow
+pandas
