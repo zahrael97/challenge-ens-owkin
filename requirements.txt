@@ -3,6 +3,7 @@ scipy
 numpy
 scikit-learn
 matplotlib
-torch
-pillow
+pillow==6.2.1
 pandas
+torch
+torchvision
