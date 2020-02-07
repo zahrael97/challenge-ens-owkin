@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-import warnings
+import torch
 
 
 def cindex(y_true_times, predicted_times, tol=1e-8):
@@ -74,3 +74,31 @@ def _cindex_np(times, predicted_times, events, tol=1.e-8):
     ties = + np.sum(eligible_pairs * 0.5 * (risks_i == risks_j))
 
     return (well_ordered + ties) / (eligible_pairs.sum() + tol)
+
+
+def cindex_torch(times, predicted_times, events, tol=1.e-8):
+    """
+    Raw CI computation from np arrray. Should not be used as is.
+    """
+    risks = - predicted_times
+
+    risks_i = risks.reshape((-1, 1))
+    risks_j = risks.reshape((1, -1))
+    times_i = times.reshape((-1, 1))
+    times_j = times.reshape((1, -1))
+    events_i = events.reshape((-1, 1))
+
+    eligible_pairs = (times_i < times_j) * events_i
+
+    well_ordered = torch.sum(eligible_pairs * (risks_i > risks_j))
+    ties = torch.sum(eligible_pairs * 0.5 * (risks_i == risks_j))
+
+    return (well_ordered + ties) / (eligible_pairs.sum() + tol)
+
+
+if __name__ == '__main__':
+    import random
+    events = torch.Tensor([0 if random.random() < 0.5 else 1 for _ in range(5)])
+    true = torch.Tensor([60, 30, 80, 50, 90])
+    predicted = torch.Tensor([20, 30, 40, 50, 60])
+    cindex_torch(true, predicted, events)
