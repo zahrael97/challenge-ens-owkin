@@ -1,3 +1,4 @@
+import sys
 from collections.abc import Iterable
 
 import cv2
@@ -99,3 +100,25 @@ def create_difference_plot(y_true, y_pred):
     plt.scatter(ids, y_true.SurvivalTime - y_pred.SurvivalTime)
     plt.title("Difference between true and prediction values")
     return fig
+
+
+def create_txt_config(model, optimizer, dataset):
+    return f"""
+    Executed command
+    ================
+    {" ".join(sys.argv)}
+
+    Dataset
+    =======
+    {dataset}
+
+    Model summary
+    =============
+    {model}
+
+    {count_parameters(model)} trainable parameters
+
+    Optimizer
+    ========
+    {optimizer}
+    """

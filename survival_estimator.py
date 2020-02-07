@@ -5,13 +5,19 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import torch
+import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-from config import EXPERIMENTS_PATH
-from metrics import cindex
-from utils import get_hms, AverageMeter, count_parameters, create_difference_plot
+from metrics import cindex_torch
+from config import EXPERIMENTS_PATH, INFERENCE_CLINICAL, INFERENCE_IMAGES
+from utils import (
+    get_hms, AverageMeter,
+    count_parameters,
+    # create_difference_plot,
+    create_txt_config,
+)
 
 
 class SurvivalEstimator:
@@ -22,6 +28,7 @@ class SurvivalEstimator:
         model_kwargs,
         dataset,
         dataset_kwargs,
+        loss=nn.MSELoss,
         experiment_name=None,
         learning_rate=.0005,
         batch_size=30,
@@ -39,6 +46,7 @@ class SurvivalEstimator:
         self.dataset = dataset
         self.dataset_kwargs = dataset_kwargs
 
+        self.loss = loss
         self.learning_rate = learning_rate
 
         self.batch_size = batch_size
@@ -103,7 +111,7 @@ class SurvivalEstimator:
             dataset_test, self.batch_size, shuffle=self.shuffle,
             num_workers=self.num_workers, pin_memory=True)
 
-        criterion = torch.nn.MSELoss()
+        criterion = self.loss()
 
         optimizer = optim.Adam(net.parameters())
         writer_train = SummaryWriter(log_dir=str(self.logs_train_path))
@@ -111,7 +119,10 @@ class SurvivalEstimator:
 
         # x = next(iter(dataloader_train))
         # writer_train.add_graph(net, (x.get("images"), x.get("clinical")))
-        print(f"Training of net begins, optimizing {count_parameters(net)} parameters")
+        config = create_txt_config(net, optimizer, self.dataset_train)
+        writer_train.add_text("Experiment summary", config)
+        print("Training of net begins, "
+              f"optimizing {count_parameters(net)} parameters")
 
         try:
             for epoch in range(epoch_to_restore + 1, epochs + epoch_to_restore + 1):
@@ -144,11 +155,8 @@ class SurvivalEstimator:
                         y = self.to(current_batch['y'])
                         prediction = net(images=images, clinical=clinical)
                         loss = criterion(prediction, y)
-                        df_true = self.make_metric_dataframe(
-                            current_batch["info"], y.cpu().numpy())
-                        df_pred = self.make_metric_dataframe(
-                            current_batch["info"], prediction.cpu().numpy())
-                        metric = cindex(df_true, df_pred)
+                        metric = cindex_torch(
+                            y, prediction, current_batch['info'][:, 1].to(self.device))
                         train_mse_loss.update(loss)
                         train_cindex_metric.update(metric)
                     writer_train.add_scalar('metrics/mse_loss', train_mse_loss.avg, epoch)
@@ -163,15 +171,12 @@ class SurvivalEstimator:
                         y = self.to(current_batch['y'])
                         prediction = net(images=images, clinical=clinical)
                         loss = criterion(prediction, y)
-                        df_true = self.make_metric_dataframe(
-                            current_batch["info"], y.cpu().numpy())
-                        df_pred = self.make_metric_dataframe(
-                            current_batch["info"], prediction.cpu().numpy())
-                        metric = cindex(df_true, df_pred)
+                        metric = cindex_torch(
+                            y, prediction, current_batch['info'][:, 1].to(self.device))
                         test_mse_loss.update(loss)
                         test_cindex_metric.update(metric)
-                    fig = create_difference_plot(df_true, df_pred)
-                    writer_test.add_figure("metrics/difference", fig, epoch)
+                    # fig = create_difference_plot(df_true, df_pred)
+                    # writer_test.add_figure("metrics/difference", fig, epoch)
                     writer_test.add_scalar('metrics/mse_loss', test_mse_loss.avg, epoch)
                     writer_test.add_scalar('metrics/cindex', test_cindex_metric.avg, epoch)
 
@@ -192,26 +197,35 @@ class SurvivalEstimator:
             print('[*] Closing Writer.')
             writer_train.close()
             writer_test.close()
+            return net
 
     def infer(self, load_epoch=None, filename_model=None):
         net = self.instantiate_generator()
 
         if filename_model is None:
             filename_model = self.models_path / f'epoch_{load_epoch}.pth'
+        else:
+            filename_model = Path(filename_model).expanduser()
         net.load_state_dict(torch.load(filename_model))
 
+        # We must define self.dataset_train for inverse scaling
+        self.dataset_kwargs["train_test"] = "train"
+        self.dataset_train = self.dataset(**self.dataset_kwargs)
+
+        self.dataset_kwargs["images_dir"] = INFERENCE_IMAGES
+        self.dataset_kwargs["infer_path"] = INFERENCE_CLINICAL
         self.dataset_kwargs["train_test"] = "test"
         self.dataset_kwargs["train_test_split"] = 0.
         self.dataset_kwargs["csv_dir"] = None
-        self.dataset_train = self.dataset(**self.dataset_kwargs)
-        dataloader_train = DataLoader(
-            self.dataset_train, self.batch_size, shuffle=self.shuffle,
+        dataset_infer = self.dataset(**self.dataset_kwargs)
+        dataloader_infer = DataLoader(
+            dataset_infer, self.batch_size, shuffle=self.shuffle,
             num_workers=self.num_workers, pin_memory=True)
 
         infer = []
         net.eval()
         with torch.no_grad():
-            for current_batch in tqdm(dataloader_train, desc='Inference'):
+            for current_batch in tqdm(dataloader_infer, desc='Inference'):
                 images = self.to(current_batch.get('images'))
                 clinical = self.to(current_batch.get('clinical'))
                 prediction = net(images=images, clinical=clinical)

@@ -5,7 +5,10 @@ import torch.nn as nn
 
 
 class Tumor3DNet(nn.Module):
-
+    """
+    Architecture inspired from :
+    https://arxiv.org/abs/1911.06687
+    """
     def __init__(
         self,
         in_channels,
@@ -42,10 +45,10 @@ class Tumor3DNet(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, images=None, clinical=None):
-        x = self.bn(images)
-        x = self.dropout3d(x)
+        # x = self.bn(images)
+        # x = self.dropout3d(x)
 
-        x = self.conv1(x)
+        x = self.conv1(images)
         x = self.bn1(x)
         x = self.pooling(x)
         x = self.activation(x)
@@ -67,39 +70,31 @@ class Tumor3DNet(nn.Module):
         return x
 
 
-class CliniqualNet(nn.Module):
+class ClinicalNet(nn.Module):
 
     def __init__(
         self,
-        in_features=19,
         hidden_layer=500,
         dropout=.5,
         regress=True,
         linear_bias=True,
     ):
-        super(CliniqualNet, self).__init__()
+        super(ClinicalNet, self).__init__()
         self.regress = regress
 
-        self.bn = nn.BatchNorm1d(in_features)
-        self.dense1 = nn.Linear(in_features, hidden_layer, bias=linear_bias)
-        self.bn1 = nn.BatchNorm1d(hidden_layer)
-        self.dense2 = nn.Linear(hidden_layer, 128, bias=linear_bias)
-        self.bn2 = nn.BatchNorm1d(128)
-        self.regressor = nn.Linear(hidden_layer, 1, bias=linear_bias)
-
-        self.activation = nn.ReLU()
-        self.dropout = nn.Dropout(dropout)
+        layer_list = []
+        for inf, outf in hidden_layer:
+            layer_list += [
+                nn.Linear(inf, outf, bias=linear_bias),
+                nn.ReLU(),
+                nn.BatchNorm1d(outf),
+                # nn.Dropout(dropout),
+            ]
+        self.fc = nn.Sequential(*layer_list)
+        self.regressor = nn.Linear(hidden_layer[-1][1], 1, bias=linear_bias)
 
     def forward(self, images=None, clinical=None):
-        x = self.dense1(clinical)
-        # x = self.bn1(x)
-        x = self.activation(x)
-        x = self.dropout(x)
-
-        # x = self.dense2(x)
-        # x = self.bn2(x)
-        # x = self.activation(x)
-        # x = self.dropout(x)
+        x = self.fc(clinical)
 
         if self.regress:
             x = self.regressor(x)
@@ -125,7 +120,7 @@ class MultiModalNet(nn.Module):
         self.tumornet = Tumor3DNet(**tumornet_kwargs)
         if clinicalnet_kwargs is None:
             clinicalnet_kwargs = {}
-        self.clinicalnet = CliniqualNet(**clinicalnet_kwargs)
+        self.clinicalnet = ClinicalNet(**clinicalnet_kwargs)
         self.regressor = nn.Linear(linear_in, 1, bias=linear_bias)
 
         if tumornet_transfer is not None:
@@ -163,9 +158,9 @@ if __name__ == '__main__':
          train_test="test")
     x2 = d2[0]['clinical'].float().unsqueeze(0).to('cpu')
     x2 = torch.cat((x2, x2), dim=0)
-    net = CliniqualNet().to('cpu')
+    net = ClinicalNet().to('cpu')
     _ = net(clinical=x2)
-    print(f"CliniqualNet has {count_parameters(net)} trainable parameters")
+    print(f"ClinicalNet has {count_parameters(net)} trainable parameters")
 
     d3 = D.MultiModalDataset(
         {"images_dir": "~/datasets/tumor/x_train/images/",

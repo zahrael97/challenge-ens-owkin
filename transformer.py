@@ -81,3 +81,10 @@ class PandasScaler(BaseEstimator, TransformerMixin):
             X[col] -= self.mapping[col]["mean"]
             X[col] /= self.mapping[col]["std"]
         return X
+
+    def inverse_transform(self, X):
+        X = X.copy()
+        for col in self.cont_cols_:
+            X[col] *= self.mapping[col]["std"]
+            X[col] += self.mapping[col]["mean"]
+        return X

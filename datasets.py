@@ -49,6 +49,7 @@ class Images3DDataset(Dataset):
         self.paths = sorted([paths[i] for i in iterator])
         self.__len = len(self.paths)
 
+        self.csv_dir = csv_dir
         if csv_dir:
             self.csv_dir = Path(csv_dir).expanduser()
             self.ground_truth = pd.read_csv(self.csv_dir)
@@ -187,6 +188,7 @@ class ClinicalDataset(Dataset):
             infer_df = self.input_scaler.transform(infer_df)
             self.df = infer_df.copy()
 
+        self.csv_dir = csv_dir
         if csv_dir:
             self.csv_dir = Path(csv_dir).expanduser()
             ground_truth = pd.read_csv(self.csv_dir)
